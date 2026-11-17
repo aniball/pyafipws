@@ -1,0 +1,128 @@
+diff --git a/rece1.py b/rece1.py
+index 6f8805e..ded0852 100644
+--- a/rece1.py
++++ b/rece1.py
+@@ -22,6 +22,8 @@ __copyright__ = "Copyright (C) 2010-2021 Mariano Reingart"
+ __license__ = "LGPL-3.0-or-later"
+ __version__ = "3.39a"
+ 
++import warnings
++warnings.simplefilter("ignore")
+ import datetime
+ import os
+ import sys
+@@ -40,6 +42,7 @@ DEBUG = False
+ XML = False
+ TIMEOUT = 30
+ CONFIG_FILE = "rece.ini"
++conf_dbf = {}
+ 
+ LICENCIA = """
+ rece1.py: Interfaz de texto para generar Facturas Electrónica Mercado Interno V1
+@@ -454,6 +457,7 @@ def depurar_xml(client, ruta="."):
+ 
+ def main():
+     global HOMO, DEBUG, CONFIG_FILE, TIMEOUT, XML
++    global conf_dbf
+     if "/ayuda" in sys.argv:
+         print(LICENCIA)
+         print()
+@@ -512,11 +516,11 @@ def main():
+         wsfev1_xml_dir = "."
+ 
+     if config.has_section("DBF"):
+-        conf_dbf = dict(config.items("DBF"))
++        conf_dbf.update(dict(config.items("DBF")))
+         if DEBUG:
+             print("conf_dbf", conf_dbf)
+     else:
+-        conf_dbf = {}
++        conf_dbf.clear()
+ 
+     if config.has_section("PROXY") and not HOMO:
+         proxy_dict = dict(("proxy_%s" % k, v) for k, v in config.items("PROXY"))
+diff --git a/utils.py b/utils.py
+index 3898893..eebc46b 100644
+--- a/utils.py
++++ b/utils.py
+@@ -751,6 +751,8 @@ def escribir(dic, formato, contraer_fechas=False):
+             if s is None:
+                 valor = chr(127)
+                 tipo = None
++            elif isinstance(s, bytes):
++                valor = s.decode("latin1")    
+             else:
+                 valor = str(s)
+             # reemplazo saltos de linea por tabulaci{on vertical
+@@ -916,8 +918,12 @@ def guardar_dbf(formatos, agrega=False, conf_dbf=None):
+             print("leyendo tabla", nombre, filename)
+         if agrega:
+             tabla = dbf.Table(filename, [campos[clave] for clave in claves])
++            tabla.open(mode=dbf.READ_WRITE)
+         else:
++            if not os.path.exists(filename):
++                continue            
+             tabla = dbf.Table(filename)
++            tabla.open(mode=dbf.READ_WRITE)
+ 
+         for d in l:
+             # si no es un diccionario, ignorar ya que seguramente va en otra
+@@ -938,12 +944,12 @@ def guardar_dbf(formatos, agrega=False, conf_dbf=None):
+                     if (v is None or v == "") and tipo in (I, N):
+                         v = 0
+                     if tipo == A:
++                        if isinstance(v, bytes):
++                            v = v.decode("latin1", "replace")
+                         if isinstance(v, str):
+-                            v = v.encode("ascii", "replace")
+-                        if isinstance(v, str):
+-                            v = v.decode("ascii", "replace").encode("ascii", "replace")
+-                        if not isinstance(v, basestring):
+-                            v = str(v)
++                            v = v.encode("latin1", "replace")
++                        if not isinstance(v, bytes):
++                            v = str(v).encode("latin1", "replace")
+                         if len(v) > longitud:
+                             v = v[:longitud]  # recorto el string para que quepa
+                     # unificar nombre de campos duplicados por compatibilidad hacia atrás:
+@@ -962,15 +968,14 @@ def guardar_dbf(formatos, agrega=False, conf_dbf=None):
+             else:
+                 if DEBUG:
+                     print("Actualizando ", r)
+-                reg = tabla.current()
+-                for k, v in list(reg.scatter_fields().items()):
+-                    if k not in r:
+-                        r[k] = v
++                reg = tabla[tabla.current]
++                campos_validos = set(f.lower() for f in tabla.field_names)
++                r_filtrado = dict((k, v) for k, v in list(r.items()) if k.lower() in campos_validos)
+                 if DEBUG:
+                     print("Actualizando ", r)
+-                reg.write_record(**r)
++                dbf.write(reg, **r_filtrado)
+                 # mover de registro para no actualizar siempre el primero:
+-                if not tabla.eof() and len(l) > 1:
++                if not tabla.eof and len(l) > 1:
+                     if DEBUG:
+                         print("Moviendo al próximo registro ", tabla.record_number)
+                     next(tabla)
+@@ -990,9 +995,10 @@ def leer_dbf(formatos, conf_dbf):
+         if not os.path.exists(filename):
+             continue
+         tabla = dbf.Table(filename)
++        tabla.open(mode=dbf.READ_ONLY)
+         for reg in tabla:
+             r = {}
+-            d = reg.scatter_fields()
++            d = dict((f.lower(), reg[f]) for f in tabla.field_names)
+             if DEBUG:
+                 print("scatter_fields", d)
+             claves = []
+@@ -1010,6 +1016,7 @@ def leer_dbf(formatos, conf_dbf):
+                 ld.update(r)
+             else:
+                 ld.append(r)
++        tabla.close()        
+ 
+ 
+ def dar_nombre_campo_dbf(clave, claves):

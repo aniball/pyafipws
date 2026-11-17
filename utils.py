@@ -751,6 +751,8 @@ def escribir(dic, formato, contraer_fechas=False):
             if s is None:
                 valor = chr(127)
                 tipo = None
+            elif isinstance(s, bytes):
+                valor = s.decode("latin1")    
             else:
                 valor = str(s)
             # reemplazo saltos de linea por tabulaci{on vertical
@@ -916,8 +918,12 @@ def guardar_dbf(formatos, agrega=False, conf_dbf=None):
             print("leyendo tabla", nombre, filename)
         if agrega:
             tabla = dbf.Table(filename, [campos[clave] for clave in claves])
+            tabla.open(mode=dbf.READ_WRITE)
         else:
-            tabla = dbf.Table(filename)
+            if not os.path.exists(filename):
+                continue            
+            tabla = dbf.Table(filename, codepage="cp850")
+            tabla.open(mode=dbf.READ_WRITE)
 
         for d in l:
             # si no es un diccionario, ignorar ya que seguramente va en otra
@@ -938,12 +944,12 @@ def guardar_dbf(formatos, agrega=False, conf_dbf=None):
                     if (v is None or v == "") and tipo in (I, N):
                         v = 0
                     if tipo == A:
+                        if isinstance(v, bytes):
+                            v = v.decode("latin1", "replace")
                         if isinstance(v, str):
-                            v = v.encode("ascii", "replace")
-                        if isinstance(v, str):
-                            v = v.decode("ascii", "replace").encode("ascii", "replace")
-                        if not isinstance(v, basestring):
-                            v = str(v)
+                            v = v.encode("latin1", "replace")
+                        if not isinstance(v, bytes):
+                            v = str(v).encode("latin1", "replace")
                         if len(v) > longitud:
                             v = v[:longitud]  # recorto el string para que quepa
                     # unificar nombre de campos duplicados por compatibilidad hacia atrás:
@@ -962,15 +968,14 @@ def guardar_dbf(formatos, agrega=False, conf_dbf=None):
             else:
                 if DEBUG:
                     print("Actualizando ", r)
-                reg = tabla.current()
-                for k, v in list(reg.scatter_fields().items()):
-                    if k not in r:
-                        r[k] = v
+                reg = tabla[tabla.current]
+                campos_validos = set(f.lower() for f in tabla.field_names)
+                r_filtrado = dict((k, v) for k, v in list(r.items()) if k.lower() in campos_validos)
                 if DEBUG:
                     print("Actualizando ", r)
-                reg.write_record(**r)
+                dbf.write(reg, **r_filtrado)
                 # mover de registro para no actualizar siempre el primero:
-                if not tabla.eof() and len(l) > 1:
+                if not tabla.eof and len(l) > 1:
                     if DEBUG:
                         print("Moviendo al próximo registro ", tabla.record_number)
                     next(tabla)
@@ -989,10 +994,12 @@ def leer_dbf(formatos, conf_dbf):
             print("leyendo tabla", nombre, filename)
         if not os.path.exists(filename):
             continue
-        tabla = dbf.Table(filename)
+        tabla = dbf.Table(filename, codepage="cp850")
+        tabla.open(mode=dbf.READ_ONLY)
+        campos_tabla = set(f.lower() for f in tabla.field_names)
         for reg in tabla:
             r = {}
-            d = reg.scatter_fields()
+            d = dict((f.lower(), reg[f]) for f in tabla.field_names)
             if DEBUG:
                 print("scatter_fields", d)
             claves = []
@@ -1001,15 +1008,18 @@ def leer_dbf(formatos, conf_dbf):
                 # import pdb; pdb.set_trace()
                 clave_dbf = dar_nombre_campo_dbf(clave, claves)
                 claves.append(clave_dbf)
-                v = d.get(clave_dbf)
-                if DEBUG:
-                    print("fmt", clave, clave_dbf, v)
-                if r.get(clave) is None:
-                    r[clave] = v
+                if clave_dbf in campos_tabla:
+                    try:
+                        v = reg[clave_dbf]
+                    except UnicodeDecodeError:
+                        v = ""
+                    if r.get(clave) is None:
+                        r[clave] = v
             if isinstance(ld, dict):
                 ld.update(r)
             else:
                 ld.append(r)
+        tabla.close()        
 
 
 def dar_nombre_campo_dbf(clave, claves):

@@ -33,3 +33,14 @@ nosetests.xml
 .mr.developer.cfg
 .project
 .pydevproject
+
+# Compilados y distribuciones
+*.exe
+*.pyc
+__pycache__/
+*.egg-info/
+
+# Entornos virtuales locales
+venv/
+.venv27/
+env/

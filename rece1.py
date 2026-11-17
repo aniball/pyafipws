@@ -22,6 +22,8 @@ __copyright__ = "Copyright (C) 2010-2021 Mariano Reingart"
 __license__ = "LGPL-3.0-or-later"
 __version__ = "3.39a"
 
+import warnings
+warnings.simplefilter("ignore")
 import datetime
 import os
 import sys
@@ -40,6 +42,7 @@ DEBUG = False
 XML = False
 TIMEOUT = 30
 CONFIG_FILE = "rece.ini"
+conf_dbf = {}
 
 LICENCIA = """
 rece1.py: Interfaz de texto para generar Facturas Electrónica Mercado Interno V1
@@ -454,6 +457,7 @@ def depurar_xml(client, ruta="."):
 
 def main():
     global HOMO, DEBUG, CONFIG_FILE, TIMEOUT, XML
+    global conf_dbf
     if "/ayuda" in sys.argv:
         print(LICENCIA)
         print()
@@ -512,11 +516,11 @@ def main():
         wsfev1_xml_dir = "."
 
     if config.has_section("DBF"):
-        conf_dbf = dict(config.items("DBF"))
+        conf_dbf.update(dict(config.items("DBF")))
         if DEBUG:
             print("conf_dbf", conf_dbf)
     else:
-        conf_dbf = {}
+        conf_dbf.clear()
 
     if config.has_section("PROXY") and not HOMO:
         proxy_dict = dict(("proxy_%s" % k, v) for k, v in config.items("PROXY"))
